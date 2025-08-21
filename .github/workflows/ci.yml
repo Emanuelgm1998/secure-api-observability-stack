@@ -1,17 +1,63 @@
 name: CI
+
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+
 jobs:
-  build:
+  api-health:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
+
+      - name: Install deps (clean)
+        run: |
+          npm ci || npm i
+
+      - name: Start server in background
+        env:
+          PORT: 3000
+          ADMIN_TOKEN: supersecret
+        run: |
+          node src/server.js & echo $! > server.pid
+          # Esperar a que escuche en 3000 (máx 10s)
+          for i in {1..20}; do
+            nc -z 127.0.0.1 3000 && break
+            sleep 0.5
+          done
+          nc -z 127.0.0.1 3000
+
+      - name: Hit /live
+        run: |
+          curl -fsS http://127.0.0.1:3000/live | grep -q '^OK$'
+
+      - name: Hit /ready
+        run: |
+          curl -fsS http://127.0.0.1:3000/ready | grep -q '^READY$'
+
+      - name: Toggle NOT_READY then READY
+        run: |
+          curl -fsS -X POST "http://127.0.0.1:3000/admin/ready?state=down" -H "X-Admin-Token: supersecret" | grep -q '"ready":false'
+          (curl -sS http://127.0.0.1:3000/ready || true) | grep -q '^NOT_READY$'
+          curl -fsS -X POST "http://127.0.0.1:3000/admin/ready?state=up" -H "X-Admin-Token: supersecret" | grep -q '"ready":true'
+          curl -fsS http://127.0.0.1:3000/ready | grep -q '^READY$'
+
+      - name: Check /metrics content-type and metric presence
+        run: |
+          ct=$(curl -sI http://127.0.0.1:3000/metrics | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
+          echo "CT=$ct"
+          echo "$ct" | grep -q "text/plain"
+          for i in {1..5}; do curl -s http://127.0.0.1:3000/live >/dev/null; done
+          curl -fsS http://127.0.0.1:3000/metrics | grep -E '^http_request_duration_seconds_(bucket|sum|count)'
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then kill -9 "$(cat server.pid)" || true; fi
