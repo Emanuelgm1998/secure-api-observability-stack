@@ -1,53 +1,63 @@
 import express from 'express';
 import helmet from 'helmet';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
-
-import logger from './logger.js';
-import metrics, { httpRequestTimer } from './metrics.js';
-import { errorHandler, notFound } from './errors.js';
-import requestId from './middlewares/requestId.js';
-import security from './middlewares/security.js';
-
-import healthRouter from './routes/health.js';
-import usersRouter from './routes/users.js';
+import register, { httpRequestTimer } from './metrics.js';
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ===== Config admin para togglear readiness en runtime =====
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme';
+let readyDown = process.env.READY_FLAG === 'down'; // estado inicial
+
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json());
-app.use(cookieParser());
-app.use(cors());
-app.use(helmet());
-app.use(security);
-app.use(requestId);
-app.use(
-  morgan('combined', {
-    stream: { write: (msg) => logger.http(msg.trim()) }
-  })
-);
-const limiter = rateLimit({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000,
-  max: Number(process.env.RATE_LIMIT_MAX) || 60
-});
-app.use(limiter);
+
+// Middleware global: métrica de duración por request
 app.use((req, res, next) => {
   const end = httpRequestTimer.startTimer();
   res.on('finish', () => {
-    end({ method: req.method, route: req.route?.path || req.path, code: res.statusCode });
+    end({
+      method: req.method,
+      route: req.route?.path || req.path,
+      status_code: res.statusCode
+    });
   });
   next();
 });
-app.use('/health', healthRouter);
-app.use('/users', usersRouter);
-app.get('/metrics', async (_req, res) => {
-  try {
-    res.set('Content-Type', metrics.register.contentType);
-    res.end(await metrics.register.metrics());
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
+
+// Liveness
+app.get('/live', (_req, res) => res.status(200).send('OK'));
+
+// Readiness (usa flag + aquí podrías chequear DB/Redis, etc.)
+async function checkDependencies() {
+  if (readyDown) return false;
+  // TODO: agrega pings reales si corresponde
+  return true;
+}
+app.get('/ready', async (_req, res) => {
+  const ok = await checkDependencies();
+  return ok ? res.status(200).send('READY') : res.status(503).send('NOT_READY');
 });
-app.use(notFound);
-app.use(errorHandler);
-export default app;
+
+// Endpoints admin para cambiar readiness en caliente
+app.post('/admin/ready', (req, res) => {
+  const token = req.header('X-Admin-Token');
+  if (token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  const state = (req.query.state || '').toLowerCase();
+  if (!['up','down'].includes(state)) return res.status(400).json({ error: 'state must be up|down' });
+  readyDown = state === 'down';
+  return res.json({ ready: !readyDown });
+});
+
+// Métricas Prometheus
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
+
+// Ruta demo
+app.get('/', (_req, res) => res.json({ status: 'up', service: 'secure-api-observability-stack' }));
+
+app.listen(PORT, () => {
+  console.log(`[secure-api-observability] Listening on :${PORT}`);
+});
