@@ -1,0 +1,54 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Request Duration (p95)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per Second",
+      "targets": [
+        {"expr": "sum(rate(http_request_duration_seconds_count[1m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Codes",
+      "targets": [
+        {"expr": "sum by (code) (rate(http_request_duration_seconds_count[1m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory (RSS)",
+      "targets": [
+        {"expr": "process_resident_memory_bytes"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU Time",
+      "targets": [
+        {"expr": "process_cpu_seconds_total"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "title": "API Overview"
+}
