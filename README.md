@@ -94,5 +94,10 @@ readinessProbe:
   httpGet:
     path: /ready
     port: 3000
+
+
 👨‍💻 Autor
-Emanuel González Michea
+© 2025 Emanuel — Licencia MIT
+
+🌐 LinkedIn
+https://www.linkedin.com/in/emanuel-gonzalez-michea/
